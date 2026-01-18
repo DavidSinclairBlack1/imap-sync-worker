@@ -147,7 +147,17 @@ app.post("/upload-csv", jwtAuthMiddleware, async (req, res) => {
 });
 
 // Send email via SMTP
+// CORS preflight handler
+app.options("/send", (req, res) => {
+  res.set({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  }).status(200).end();
+});
+
 app.post("/send", jwtAuthMiddleware, async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
   try {
     const { email_account_id, to, subject, body_html, body_text, in_reply_to, references } = req.body;
     const user_id = req.user_id;
