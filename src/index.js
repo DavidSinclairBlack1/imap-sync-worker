@@ -202,9 +202,9 @@ app.post("/send", jwtAuthMiddleware, async (req, res) => {
     
     // Try multiple port configurations
     const configs = [
+      { port: 25, secure: false },
       { port: 587, secure: false },
       { port: 465, secure: true },
-      { port: 25, secure: false },
     ];
     
     let info = null;
