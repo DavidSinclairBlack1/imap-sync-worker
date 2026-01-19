@@ -42,7 +42,7 @@ async function getAccountCredentials(accountId, credType) {
 async function syncAccount(account) {
   const password = await getAccountCredentials(account.id, "imap_password");
   if (!password) throw new Error("No password");
-  const client = new ImapFlow({ host: account.imap_host, port: account.imap_port || 993, secure: true, auth: { user: account.email, pass: password }, logger: false });
+  const client = new ImapFlow({ host: account.imap_host, port: account.imap_port || 993, secure: true, auth: { user: account.email, pass: password }, tls: { rejectUnauthorized: false }, logger: false });
   client.on("error", (err) => console.log(`[IMAP error] ${account.email}:`, err.message));
   await client.connect();
   const lock = await client.getMailboxLock("INBOX");
