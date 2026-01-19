@@ -186,9 +186,11 @@ app.options("/send", (req, res) => {
 app.post("/send", jwtAuthMiddleware, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   try {
-    const { email_account_id, to, subject, body_html, body_text, in_reply_to, references } = req.body;
-    const user_id = req.user_id;
-    if (!email_account_id || !to || (!body_html && !body_text)) return res.status(400).json({ ok: false, error: "Missing required fields" });
+    const { email_account_id, to, subject, body_html, body_text } = req.body;
+    
+    if (!email_account_id || !to || (!body_html && !body_text)) {
+      return res.status(400).json({ ok: false, error: "Missing required fields" });
+    }
     
     const { data: account } = await supabase.from('EmailAccounts').select('*').eq('id', email_account_id).single();
     if (!account) return res.status(404).json({ ok: false, error: "Email account not found" });
@@ -197,60 +199,41 @@ app.post("/send", jwtAuthMiddleware, async (req, res) => {
     if (!password) password = await getAccountCredentials(email_account_id, "imap_password");
     if (!password) return res.status(400).json({ ok: false, error: "No credentials found" });
     
-    const smtpHost = account.smtp_host || account.imap_host;
-    console.log(`[send] Sending from ${account.email} to ${to} via ${smtpHost}`);
+    console.log(`[send] Sending from ${account.email} to ${to} via SMTP proxy`);
     
-    // Try multiple port configurations
-    const configs = [
-      { port: 25, secure: false },
-      { port: 587, secure: false },
-      { port: 465, secure: true },
-    ];
+    // Use Contabo SMTP proxy
+    const proxyResponse = await fetch('http://167.86.124.72:3000/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: account.email,
+        to: Array.isArray(to) ? to.join(',') : to,
+        subject: subject || '',
+        html: body_html || '',
+        text: body_text || '',
+        password: password
+      })
+    });
     
-    let info = null;
-    let lastError = null;
+    const result = await proxyResponse.json();
     
-    for (const config of configs) {
-      try {
-        console.log(`[send] Trying ${smtpHost}:${config.port}`);
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: config.port,
-          secure: config.secure,
-          auth: { user: account.email, pass: password },
-          connectionTimeout: 30000,
-          greetingTimeout: 30000,
-          tls: { rejectUnauthorized: false }
-        });
-        
-        info = await transporter.sendMail({
-          from: account.email,
-          to: Array.isArray(to) ? to.join(', ') : to,
-          subject: subject || '',
-          html: body_html || undefined,
-          text: body_text || undefined,
-          inReplyTo: in_reply_to || undefined,
-          references: references || undefined,
-        });
-        console.log(`[send] Success on port ${config.port}: ${info.messageId}`);
-        break;
-      } catch (err) {
-        console.log(`[send] Failed on port ${config.port}: ${err.message}`);
-        lastError = err;
-      }
-    }
+    if (!result.ok) throw new Error(result.error);
     
-    if (!info) throw lastError || new Error("All SMTP ports failed");
+    const messageId = result.messageId || `sent-${Date.now()}`;
     
-    const messageId = (info.messageId || '').replace(/[<>]/g, '') || `sent-${Date.now()}`;
-    
+    // Store in database
     await supabase.from('Emails').insert({
-      user_id, email_account_id, message_id: messageId,
+      user_id: account.user_id,
+      email_account_id,
+      message_id: messageId,
       from_address_email: account.email,
       to_address_email_list: Array.isArray(to) ? to : [to],
-      subject: subject || '', timestamp_email: new Date(),
-      direction: 'sent', is_unread: false,
-      body_html: body_html || '', body_text: body_text || '',
+      subject: subject || '',
+      timestamp_email: new Date(),
+      direction: 'sent',
+      is_unread: false,
+      body_html: body_html || '',
+      body_text: body_text || '',
       imap_folder: 'SENT',
     });
     
@@ -259,6 +242,6 @@ app.post("/send", jwtAuthMiddleware, async (req, res) => {
     console.log('[send] Error:', e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
-});
+})
 
 app.listen(PORT, () => { startLoop(); console.log(`✅ Listening on port ${PORT}`); });
