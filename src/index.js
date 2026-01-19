@@ -106,6 +106,33 @@ const jwtAuthMiddleware = (req, res, next) => {
 
 app.post("/sync", apiKeyMiddleware, async (req, res) => { try { await syncAllAccounts(); res.json({ ok: true, message: "Sync triggered" }); } catch (e) { res.status(500).json({ ok: false, error: e.message }); } });
 
+// Optional auth - allows requests without strict user checking
+const optionalAuthMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.substring(7);
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.sub) req.user_id = decoded.sub;
+    } catch (error) {}
+  }
+  next();
+};
+
+// Get all accounts endpoint (no user filter)
+app.get("/accounts", optionalAuthMiddleware, async (req, res) => {
+  try {
+    const { data: accounts, error } = await supabase
+      .from('EmailAccounts')
+      .select('*')
+      .order('email', { ascending: true });
+    if (error) throw error;
+    res.json({ ok: true, accounts: accounts || [], total: accounts?.length || 0 });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post("/upload-csv", jwtAuthMiddleware, async (req, res) => {
   try {
     const { csv_content, workspace_id } = req.body;
